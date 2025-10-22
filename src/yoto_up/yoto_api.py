@@ -11,14 +11,16 @@ import threading
 from typing import Optional, Callable
 
 from loguru import logger
-from yoto_up.models import DeviceObject, Track, Chapter, ChapterDisplay, TrackDisplay, CardContent, CardMetadata, CardMedia, Card, Device, DeviceStatus, DeviceConfig
+from yoto_up.models import DeviceObject, Track, Chapter, ChapterDisplay, TrackDisplay, CardContent, CardMetadata, \
+    CardMedia, Card, Device, DeviceStatus, DeviceConfig
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn, BarColumn
 from rich.table import Table
 from rich import print as rprint
 from PIL import Image
 from bs4 import BeautifulSoup
-try: # fails when debugging
+
+try:  # fails when debugging
     from rapidfuzz import fuzz
 except (AssertionError, ModuleNotFoundError):
     # fallback: use a simple fuzzy matcher
@@ -33,6 +35,7 @@ try:
     import nltk
     from nltk.corpus import stopwords as nltk_stopwords
     from nltk.tokenize import word_tokenize
+
     _HAVE_NLTK = True
     # Try to ensure resources are present when running in desktop environments
     # where downloads are possible. If downloads fail, keep going — fallbacks
@@ -53,9 +56,12 @@ try:
             pass
 except (ImportError, ModuleNotFoundError):
     _HAVE_NLTK = False
+
+
     # Minimal fallback tokenizer and stopwords for basic keyword extraction
     def word_tokenize(text: str):
         return re.findall(r"\w+", text)
+
 
     class _FallbackStopwords:
         @staticmethod
@@ -67,6 +73,7 @@ except (ImportError, ModuleNotFoundError):
                 "do", "does", "did", "has", "have", "had", "you", "your", "my", "our", "their",
                 "his", "her", "its", "episode", "chapter"
             ]
+
 
     nltk_stopwords = _FallbackStopwords
 from yoto_up.icons import render_icon
@@ -85,6 +92,7 @@ from typing import Any, List, Type, get_origin, get_args
 from pydantic import BaseModel
 
 DEFAULT_MEDIA_ID = "aUm9i3ex3qqAMYBv-i-O-pYMKuMJGICtR3Vhf289u2Q"
+
 
 def find_extra_fields(model: Type[BaseModel], data: Any, path: str = '', warn_extra=True) -> List[str]:
     """
@@ -140,7 +148,7 @@ def find_extra_fields(model: Type[BaseModel], data: Any, path: str = '', warn_ex
             if isinstance(inner, type) and issubclass(inner, BaseModel):
                 for i, item in enumerate(val):
                     if isinstance(item, dict):
-                        extras.extend(find_extra_fields(inner, item, f"{full_path}[{i}]") )
+                        extras.extend(find_extra_fields(inner, item, f"{full_path}[{i}]"))
 
     if warn_extra and extras:
         logger.warning(f"Found unexpected fields in data for model {model.__name__}: {extras}")
@@ -149,12 +157,13 @@ def find_extra_fields(model: Type[BaseModel], data: Any, path: str = '', warn_ex
 
     return extras
 
+
 def has_extra_fields(model: Type[BaseModel], data: Any) -> bool:
     """Convenience wrapper returning True if any unexpected fields are present."""
     return bool(find_extra_fields(model, data))
 
-class YotoAPI:
 
+class YotoAPI:
     SERVER_URL = "https://api.yotoplay.com"
     DEVICE_AUTH_URL = "https://login.yotoplay.com/oauth/device/code"
     TOKEN_URL = "https://login.yotoplay.com/oauth/token"
@@ -167,8 +176,8 @@ class YotoAPI:
     YOTOICONS_CACHE_DIR: Path = paths.YOTOICONS_CACHE_DIR
     VERSIONS_DIR: Path = paths.VERSIONS_DIR
 
-
-    def __init__(self, client_id, debug=False, cache_requests=False, cache_max_age_seconds=0, auto_refresh_tokens=True, auto_start_authentication=True, app_path:Path|None=None):
+    def __init__(self, client_id, debug=False, cache_requests=False, cache_max_age_seconds=0, auto_refresh_tokens=True,
+                 auto_start_authentication=True, app_path: Path | None = None):
         self.client_id = client_id
         self.debug = debug
         logger.remove()
@@ -182,6 +191,7 @@ class YotoAPI:
                 except ValueError:
                     level = record.levelno
                 logger.log(level, record.getMessage())
+
         logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO)
         httpx_logger = logging.getLogger("httpx")
         httpx_logger.propagate = True
@@ -232,7 +242,8 @@ class YotoAPI:
             if auto_start_authentication:
                 self.authenticate()
             else:
-                logger.warning("No valid token found and auto_start_authentication is False. Please authenticate manually.")
+                logger.warning(
+                    "No valid token found and auto_start_authentication is False. Please authenticate manually.")
         elif self.is_token_expired(self.access_token) and auto_refresh_tokens:
             logger.info("Token expired, refreshing...")
             self.refresh_tokens()
@@ -346,6 +357,7 @@ class YotoAPI:
             if return_card:
                 return Card.model_validate(response.json().get("card") or response.json())
             return response.json()
+
     def _make_cache_key(self, method, url, params=None, data=None, json_data=None):
         key = {
             "method": method,
@@ -366,16 +378,20 @@ class YotoAPI:
             age = now - cache_entry.get("timestamp", 0)
             if age <= self.cache_max_age_seconds:
                 resp_data = cache_entry
+
                 class DummyResponse:
                     def __init__(self, data):
                         self._data = data
                         self.status_code = data.get("status_code", 200)
                         self.text = json.dumps(data.get("json", {}))
                         self.ok = True
+
                     def json(self):
                         return self._data.get("json", {})
+
                     def raise_for_status(self):
                         pass
+
                 return DummyResponse(resp_data)
         resp = httpx.request(method, url, headers=headers, params=params, data=data, json=json_data)
         try:
@@ -411,18 +427,19 @@ class YotoAPI:
         start_time = time.time()
         interval_sec = interval
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            TimeElapsedColumn(),
-            transient=True,
-            console=console,
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                TimeElapsedColumn(),
+                transient=True,
+                console=console,
         ) as progress:
             task = progress.add_task("Waiting for authorization...", start=False)
             while True:
                 elapsed = time.time() - start_time
                 if elapsed > expires_in:
-                    console.print("[bold red]Device code has expired. Please restart the device login process.[/bold red]")
-                    #logger.debug("Device code has expired. Please restart the device login process.")
+                    console.print(
+                        "[bold red]Device code has expired. Please restart the device login process.[/bold red]")
+                    # logger.debug("Device code has expired. Please restart the device login process.")
                     raise Exception("Device code has expired. Please restart the device login process.")
                 data = {
                     "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
@@ -431,9 +448,9 @@ class YotoAPI:
                     "audience": "https://api.yotoplay.com",
                 }
                 headers = {"Content-Type": "application/x-www-form-urlencoded"}
-                #logger.debug(f"Polling for token: {data}")
+                # logger.debug(f"Polling for token: {data}")
                 response = httpx.post(self.TOKEN_URL, data=data, headers=headers)
-                #logger.debug(f"Token poll response: {response.status_code} {response.text}")
+                # logger.debug(f"Token poll response: {response.status_code} {response.text}")
                 resp_json = response.json()
                 if response.is_success:
                     console.print("[bold green]Authorization successful![/bold green]")
@@ -451,11 +468,13 @@ class YotoAPI:
                         time.sleep(interval_sec)
                         continue
                     elif error == "expired_token":
-                        console.print("[bold red]Device code has expired. Please restart the device login process.[/bold red]")
+                        console.print(
+                            "[bold red]Device code has expired. Please restart the device login process.[/bold red]")
                         logger.debug("Device code has expired. Please restart the device login process.")
                         raise Exception("Device code has expired. Please restart the device login process.")
                     else:
-                        console.print(f"[bold red]Token poll error: {resp_json.get('error_description', error)}[/bold red]")
+                        console.print(
+                            f"[bold red]Token poll error: {resp_json.get('error_description', error)}[/bold red]")
                         logger.debug(f"Token poll error: {resp_json.get('error_description', error)}")
                         raise Exception(resp_json.get("error_description", error))
                 else:
@@ -598,7 +617,7 @@ class YotoAPI:
             find_extra_fields(Card, data, warn_extra=True)
         return Card.model_validate(data)
 
-    def create_or_update_content(self, card, return_card=False, add_update_at=True, create_version:bool=True):
+    def create_or_update_content(self, card, return_card=False, add_update_at=True, create_version: bool = True):
         """
         Accepts a Card model instance and sends it to the API.
 
@@ -619,7 +638,7 @@ class YotoAPI:
             "Authorization": f"Bearer {self.access_token}",
             "Content-Type": "application/json"
         }
-        #payload = {"card": card.model_dump(exclude_none=True)}
+        # payload = {"card": card.model_dump(exclude_none=True)}
         payload = card.model_dump(exclude_none=True)
         logger.debug(f"POST {self.CONTENT_URL} payload: {payload}")
         response = self._cached_request("POST", self.CONTENT_URL, headers=headers, json_data=payload)
@@ -654,7 +673,6 @@ class YotoAPI:
         response.raise_for_status()
         return response.json()
 
-
     from typing import Tuple
     def calculate_sha256(self, audio_path: str) -> Tuple[str, bytes]:
         import hashlib
@@ -662,19 +680,18 @@ class YotoAPI:
             audio_bytes = f.read()
         return hashlib.sha256(audio_bytes).hexdigest(), audio_bytes
 
-
     async def upload_and_transcode_audio_async(
-        self,
-        audio_path: str,
-        filename: Optional[str] = None,
-        loudnorm: bool = False,
-        poll_interval: float = 2,
-        max_attempts: int = 60,
-        show_progress: bool = True,
-        progress: 'Progress' = None,
-        upload_task_id: int | None = None,
-        transcode_task_id: int | None = None,
-        progress_callback: Optional[Callable[[str, float], None]] = None,
+            self,
+            audio_path: str,
+            filename: Optional[str] = None,
+            loudnorm: bool = False,
+            poll_interval: float = 2,
+            max_attempts: int = 60,
+            show_progress: bool = True,
+            progress: 'Progress' = None,
+            upload_task_id: int | None = None,
+            transcode_task_id: int | None = None,
+            progress_callback: Optional[Callable[[str, float], None]] = None,
     ):
         """
         Async version: Handles hashing, upload URL, upload, and transcoding for an audio file.
@@ -683,6 +700,7 @@ class YotoAPI:
         Accepts an optional progress_callback(msg, frac) for external UI updates.
         """
         logger.debug(f"Starting upload_and_transcode_audio_async for {audio_path} with filename={filename}")
+
         def _call_cb(msg: str | None = None):
             try:
                 if callable(progress_callback):
@@ -716,7 +734,8 @@ class YotoAPI:
             _call_cb("Uploading audio...")
 
             async with httpx.AsyncClient() as client:
-                put_resp = await client.put(audio_upload_url, content=audio_bytes, headers={"Content-Type": "audio/mpeg"}, timeout=300)
+                put_resp = await client.put(audio_upload_url, content=audio_bytes,
+                                            headers={"Content-Type": "audio/mpeg"}, timeout=300)
                 if put_resp.status_code >= 400:
                     logger.error(f"Audio upload failed: {put_resp.text}")
                     if progress and upload_task_id is not None:
@@ -738,14 +757,14 @@ class YotoAPI:
         return transcoded_audio
 
     async def poll_for_transcoding_async(
-        self,
-        upload_id: str,
-        loudnorm: bool = False, # This doesn't actually do anything here
-        poll_interval: float = 2,
-        max_attempts: int = 120,
-        show_progress: bool = False,
-        progress: 'Progress' = None,
-        transcode_task_id: int | None = None,
+            self,
+            upload_id: str,
+            loudnorm: bool = False,  # This doesn't actually do anything here
+            poll_interval: float = 2,
+            max_attempts: int = 120,
+            show_progress: bool = False,
+            progress: 'Progress' = None,
+            transcode_task_id: int | None = None,
     ):
         import httpx
         import asyncio
@@ -780,14 +799,14 @@ class YotoAPI:
         return transcoded_audio
 
     async def upload_and_transcode_many_async(
-        self,
-        media_files,
-        filename_list=None,
-        loudnorm=False,
-        poll_interval=2,
-        max_attempts=60,
-        show_progress=True,
-        max_concurrent_uploads: int = 4
+            self,
+            media_files,
+            filename_list=None,
+            loudnorm=False,
+            poll_interval=2,
+            max_attempts=60,
+            show_progress=True,
+            max_concurrent_uploads: int = 4
     ):
         """
         Launch parallel async uploads and transcodes for a list of media files.
@@ -798,17 +817,19 @@ class YotoAPI:
         results = []
         console = Console()
         semaphore = asyncio.Semaphore(max_concurrent_uploads)
+
         async def sem_task(*args, **kwargs):
             async with semaphore:
                 return await self.upload_and_transcode_audio_async(*args, **kwargs)
+
         tasks = []
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TimeElapsedColumn(),
-            transient=False,
-            console=console,
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeElapsedColumn(),
+                transient=False,
+                console=console,
         ) as progress:
             upload_task_ids = []
             transcode_task_ids = []
@@ -886,8 +907,10 @@ class YotoAPI:
                 for tid in transcode_task_ids:
                     make_task_visible(tid, "transcode")
                 return result
+
             total_tasks = len(media_files)
             overall_task_id = progress.add_task("Overall Progress", total=total_tasks)
+
             # Only show up to 8 upload/transcode tasks at a time
             def add_visible_task(label, total):
                 if len(progress.tasks) < visible_limit:
@@ -895,6 +918,7 @@ class YotoAPI:
                 else:
                     # Add hidden task (not shown in UI)
                     return progress.add_task(label, total=total, visible=False)
+
             for idx, media_file in enumerate(media_files):
                 fname = None
                 if filename_list:
@@ -903,6 +927,7 @@ class YotoAPI:
                 transcode_task_id = add_visible_task(f"Transcode {fname or media_file}", max_attempts)
                 upload_task_ids.append(upload_task_id)
                 transcode_task_ids.append(transcode_task_id)
+
                 async def wrapped_task(idx=idx, upload_task_id=upload_task_id, transcode_task_id=transcode_task_id):
                     result = await sem_task(
                         audio_path=str(media_files[idx]),
@@ -930,23 +955,24 @@ class YotoAPI:
                     for tid in transcode_task_ids:
                         make_task_visible(tid, "transcode")
                     return result
+
                 tasks.append(wrapped_task())
             results = await asyncio.gather(*tasks)
         return results
 
     async def upload_and_transcode_and_create_card_async(
-        self,
-        media_files,
-        card_title: str,
-        filename_list=None,
-        loudnorm=False,
-        poll_interval=2,
-        max_attempts=60,
-        show_progress=True,
-        max_concurrent_uploads: int = 4,
-        progress_callback: Optional[Callable[[str, float], None]] = None,
-        return_card: bool = True,
-        single_chapter: bool = False,
+            self,
+            media_files,
+            card_title: str,
+            filename_list=None,
+            loudnorm=False,
+            poll_interval=2,
+            max_attempts=60,
+            show_progress=True,
+            max_concurrent_uploads: int = 4,
+            progress_callback: Optional[Callable[[str, float], None]] = None,
+            return_card: bool = True,
+            single_chapter: bool = False,
     ):
         """
         Parallel upload & transcode for a list of media files, preserve input order,
@@ -1020,7 +1046,7 @@ class YotoAPI:
                     track_details = None
                 track = self.get_track_from_transcoded_audio(tr, track_details=track_details)
                 try:
-                    track.key = f"{i+1:02}"
+                    track.key = f"{i + 1:02}"
                 except Exception:
                     pass
                 tracks.append(track)
@@ -1045,11 +1071,11 @@ class YotoAPI:
                     chapter_details = None
                 ch = self.get_chapter_from_transcoded_audio(tr, chapter_details=chapter_details)
                 try:
-                    ch.key = f"{i+1:02}"
+                    ch.key = f"{i + 1:02}"
                     if hasattr(ch, 'tracks') and ch.tracks:
                         for j, t in enumerate(ch.tracks):
                             try:
-                                t.key = f"{j+1:02}"
+                                t.key = f"{j + 1:02}"
                             except Exception:
                                 pass
                 except Exception:
@@ -1097,12 +1123,12 @@ class YotoAPI:
         logger.info("Audio uploaded successfully.")
 
     def poll_for_transcoding(
-        self,
-        upload_id: str,
-        loudnorm: bool = False,
-        poll_interval: float = 2,
-        max_attempts: int = 120,
-        show_progress: bool = False,
+            self,
+            upload_id: str,
+            loudnorm: bool = False,
+            poll_interval: float = 2,
+            max_attempts: int = 120,
+            show_progress: bool = False,
     ):
         transcode_url = f"https://api.yotoplay.com/media/upload/{upload_id}/transcoded?loudnorm={'true' if loudnorm else 'false'}"
         attempts = 0
@@ -1111,12 +1137,12 @@ class YotoAPI:
         if show_progress:
             console = Console()
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=console,
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=console,
             ) as progress:
                 task = progress.add_task("Transcoding audio...", total=max_attempts)
                 while attempts < max_attempts:
@@ -1153,7 +1179,8 @@ class YotoAPI:
                 raise Exception("Transcoding timed out.")
         return transcoded_audio
 
-    def get_track_from_transcoded_audio(self, transcoded_audio, track_details: Optional[dict] = None) -> Optional[Track]:
+    def get_track_from_transcoded_audio(self, transcoded_audio, track_details: Optional[dict] = None) -> Optional[
+        Track]:
         media_info = transcoded_audio.get("transcodedInfo", {})
         track_title = media_info.get("metadata", {}).get("title") or "Unknown Track"
         # Merge custom track details
@@ -1173,7 +1200,8 @@ class YotoAPI:
             track_kwargs.update(track_details)
         return Track(**track_kwargs)
 
-    def get_chapter_from_transcoded_audio(self, transcoded_audio, track_details: Optional[dict] = None, chapter_details: Optional[dict] = None) -> Optional[Chapter]:
+    def get_chapter_from_transcoded_audio(self, transcoded_audio, track_details: Optional[dict] = None,
+                                          chapter_details: Optional[dict] = None) -> Optional[Chapter]:
         media_info = transcoded_audio.get("transcodedInfo", {})
         # Use chapter_details['title'] if provided, else fallback to metadata title, else 'Unknown Chapter'
         chapter_title = None
@@ -1216,7 +1244,8 @@ class YotoAPI:
         chapter = Chapter(**chapter_kwargs)
         return chapter
 
-    def create_card_from_transcoded_audio(self, card_title: str, transcoded_audio, track_details: Optional[dict] = None, chapter_details: Optional[dict] = None):
+    def create_card_from_transcoded_audio(self, card_title: str, transcoded_audio, track_details: Optional[dict] = None,
+                                          chapter_details: Optional[dict] = None):
         media_info = transcoded_audio.get("transcodedInfo", {})
         chapter_title = media_info.get("metadata", {}).get("title") or card_title
         # Merge custom track details
@@ -1269,15 +1298,15 @@ class YotoAPI:
         return card
 
     def upload_audio_to_card(
-        self,
-        audio_path: str,
-        card_title: str,
-        filename: Optional[str] = None,
-        loudnorm: bool = False,
-        poll_interval: float = 0.5,
-        max_attempts: int = 30,
-        track_details: Optional[dict] = None,
-        chapter_details: Optional[dict] = None,
+            self,
+            audio_path: str,
+            card_title: str,
+            filename: Optional[str] = None,
+            loudnorm: bool = False,
+            poll_interval: float = 0.5,
+            max_attempts: int = 30,
+            track_details: Optional[dict] = None,
+            chapter_details: Optional[dict] = None,
     ):
         """
         Uploads and transcodes audio, then creates a card from the transcoded audio.
@@ -1292,17 +1321,17 @@ class YotoAPI:
         return self.create_card_from_transcoded_audio(card_title, transcoded_audio, track_details, chapter_details)
 
     def upload_audio_to_existing_card(
-        self,
-        audio_path: str,
-        card_id: str,
-        chapter_index: int = 0,
-        filename: Optional[str] = None,
-        loudnorm: bool = False,
-        poll_interval: float = 0.5,
-        max_attempts: int = 30,
-        track_details: Optional[dict] = None,
-        chapter_details: Optional[dict] = None,
-        icon_uri : Optional[str] = None
+            self,
+            audio_path: str,
+            card_id: str,
+            chapter_index: int = 0,
+            filename: Optional[str] = None,
+            loudnorm: bool = False,
+            poll_interval: float = 0.5,
+            max_attempts: int = 30,
+            track_details: Optional[dict] = None,
+            chapter_details: Optional[dict] = None,
+            icon_uri: Optional[str] = None
     ):
         """
         Upload an audio file and add it as a track to an existing card.
@@ -1341,7 +1370,8 @@ class YotoAPI:
         # Prepare new chapter with the uploaded audio as a track
         track_kwargs = dict(
             key="01",
-            title=media_info.get("metadata", {}).get("title") or (track_details.get("title") if track_details else file_path.stem),
+            title=media_info.get("metadata", {}).get("title") or (
+                track_details.get("title") if track_details else file_path.stem),
             trackUrl=f"yoto:#{transcoded_audio['transcodedSha256']}",
             duration=media_info.get("duration"),
             fileSize=media_info.get("fileSize"),
@@ -1409,13 +1439,13 @@ class YotoAPI:
         return self.create_or_update_content(card, return_card=return_card_model)
 
     def upload_and_transcode_audio(
-        self,
-        audio_path: str,
-        filename: Optional[str] = None,
-        loudnorm: bool = False,
-        poll_interval: float = 2,
-        max_attempts: int = 60,
-        show_progress: bool = True
+            self,
+            audio_path: str,
+            filename: Optional[str] = None,
+            loudnorm: bool = False,
+            poll_interval: float = 2,
+            max_attempts: int = 60,
+            show_progress: bool = True
     ):
         """
         Handles hashing, upload URL, upload, and transcoding for an audio file.
@@ -1446,7 +1476,6 @@ class YotoAPI:
         logger.debug("Refreshing public and user icons...")
         self.get_public_icons(show_in_console=show_in_console, refresh_cache=refresh_cache)
         self.get_user_icons(show_in_console=show_in_console, refresh_cache=refresh_cache)
-
 
     def get_public_icons(self, show_in_console: bool = True, refresh_cache: bool = False):
         """
@@ -1506,12 +1535,12 @@ class YotoAPI:
                 return icon_item
 
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=Console(),
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=Console(),
             ) as progress:
                 download_task = progress.add_task("Downloading & caching images...", total=len(icons))
                 max_workers = min(8, max(1, len(icons)))
@@ -1535,12 +1564,12 @@ class YotoAPI:
                 pass
             # Render pixel art with progress
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=Console(),
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=Console(),
             ) as progress:
                 render_task = progress.add_task("Rendering pixel art...", total=len(icons))
                 for icon in icons:
@@ -1630,12 +1659,12 @@ class YotoAPI:
             table.add_column("Pixel Art", style="white")
             # Download/cache images with progress
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=Console(),
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=Console(),
             ) as progress:
                 download_task = progress.add_task("Downloading & caching images...", total=len(icons))
                 for icon in icons:
@@ -1659,12 +1688,12 @@ class YotoAPI:
                 pass
             # Render pixel art with progress
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=Console(),
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=Console(),
             ) as progress:
                 render_task = progress.add_task("Rendering pixel art...", total=len(icons))
                 for icon in icons:
@@ -1699,10 +1728,11 @@ class YotoAPI:
                 json.dump(icons, f, indent=2)
         except Exception:
             pass
-                    
+
         return icons
 
-    def search_cached_icons(self, query: str, fields: Optional[list] = None, show_in_console: bool = True, include_yotoicons: bool = True, include_authors: bool = False):
+    def search_cached_icons(self, query: str, fields: Optional[list] = None, show_in_console: bool = True,
+                            include_yotoicons: bool = True, include_authors: bool = False):
         """
         Search the cached icon metadata for matches in specified fields.
         By default, includes icons from both .yoto_icon_cache and .yotoicons_cache.
@@ -1813,12 +1843,14 @@ class YotoAPI:
                     cache_path = Path(icon["cache_path"])
                 else:
                     cache_path = None
-                pixel_art = render_icon(cache_path) if cache_path and cache_path.exists() else "[red]Download error[/red]"
+                pixel_art = render_icon(
+                    cache_path) if cache_path and cache_path.exists() else "[red]Download error[/red]"
                 table.add_row("YotoIcons", icon.get("category", ""), tags, display_icon_id, pixel_art)
             rprint(table)
         return yoto_results + yotoicons_results
 
-    def search_yotoicons(self, tag: str, show_in_console: bool = True, limit: int = 20, refresh_cache: bool = False, return_new_only: bool = False):
+    def search_yotoicons(self, tag: str, show_in_console: bool = True, limit: int = 20, refresh_cache: bool = False,
+                         return_new_only: bool = False):
         """
         Search and retrieve icons from yotoicons.com by tag (scrapes HTML, no API).
         Downloads and caches 16x16 pixel art images and metadata.
@@ -1857,12 +1889,12 @@ class YotoAPI:
             base_url = "https://www.yotoicons.com/icons?category=&tag="
             url = f"{base_url}{tag}"
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=console,
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=console,
             ) as progress:
                 scrape_task = progress.add_task("Scraping icons...", total=limit)
                 resp = httpx.get(url)
@@ -1872,7 +1904,9 @@ class YotoAPI:
                 icons = []
                 for div in soup.select("section#search_results div.icon"):
                     onclick = div.get("onclick", "")
-                    m = re.search(r"populate_icon_modal\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'(\d+)'\)", onclick)
+                    m = re.search(
+                        r"populate_icon_modal\('(\d+)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*'(\d+)'\)",
+                        onclick)
                     if not m:
                         continue
                     icon_id, category, tag1, tag2, author, downloads = m.groups()
@@ -1907,12 +1941,12 @@ class YotoAPI:
                     json.dump(icons, f, indent=2)
         # Download/cache images with progress
         with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TimeElapsedColumn(),
-            transient=True,
-            console=console,
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TimeElapsedColumn(),
+                transient=True,
+                console=console,
         ) as progress:
             download_task = progress.add_task("Downloading & caching images...", total=len(icons))
             for icon in icons:
@@ -1950,12 +1984,12 @@ class YotoAPI:
             table.add_column("Pixel Art", style="white")
             # Progress bar for rendering pixel art
             with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TimeElapsedColumn(),
-                transient=True,
-                console=console,
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TimeElapsedColumn(),
+                    transient=True,
+                    console=console,
             ) as progress:
                 render_task = progress.add_task("Rendering pixel art...", total=len(icons))
                 for icon in icons:
@@ -1977,8 +2011,9 @@ class YotoAPI:
             return new_icons
         return icons
 
-
-    def find_best_icons_for_text(self, text: str, include_yotoicons: bool = True, top_n: int = 5, show_in_console: bool = False, extra_tags: Optional[list] = None, max_searches: int = 3):
+    def find_best_icons_for_text(self, text: str, include_yotoicons: bool = True, top_n: int = 5,
+                                 show_in_console: bool = False, extra_tags: Optional[list] = None,
+                                 max_searches: int = 3):
         """
         Given a text input (album/song/chapter title), search cached icons and return a list of the most appropriate icon dicts.
         Uses fuzzy substring matching and simple scoring.
@@ -1986,10 +2021,14 @@ class YotoAPI:
         Now supports making multiple calls to search_yotoicons with extra tags for broader search.
         """
         logger.info(f"Finding best icons for text: {text}")
-        logger.info(f"Include YotoIcons: {include_yotoicons}, Top N: {top_n}, Show in console: {show_in_console}, Extra tags: {extra_tags}, Max searches: {max_searches}")
+        logger.info(
+            f"Include YotoIcons: {include_yotoicons}, Top N: {top_n}, Show in console: {show_in_console}, Extra tags: {extra_tags}, Max searches: {max_searches}")
         # Simple stopword list for English
         STOPWORDS = set([
-            "the", "and", "a", "an", "of", "in", "on", "at", "to", "for", "by", "with", "is", "it", "as", "from", "that", "this", "be", "are", "was", "were", "or", "but", "not", "so", "if", "then", "than", "too", "very", "can", "will", "just", "do", "does", "did", "has", "have", "had", "you", "your", "my", "our", "their", "his", "her", "its", "episode", "chapter"
+            "the", "and", "a", "an", "of", "in", "on", "at", "to", "for", "by", "with", "is", "it", "as", "from",
+            "that", "this", "be", "are", "was", "were", "or", "but", "not", "so", "if", "then", "than", "too", "very",
+            "can", "will", "just", "do", "does", "did", "has", "have", "had", "you", "your", "my", "our", "their",
+            "his", "her", "its", "episode", "chapter"
         ])
         query = text.strip().lower()
         icons = []
@@ -2043,9 +2082,12 @@ class YotoAPI:
                 except Exception as e:
                     logger.error(f"[YotoAPI] Error searching YotoIcons for tag '{tag}'")
                     logger.error(e)
+
         # Scoring function: higher score for closer match
         def score_icon(icon):
-            fields = [icon.get("title", ""), icon.get("category", ""), icon.get("id", ""), icon.get("displayIconId", ""), " ".join(icon.get("tags", [])), " ".join(icon.get("publicTags", []))]
+            fields = [icon.get("title", ""), icon.get("category", ""), icon.get("id", ""),
+                      icon.get("displayIconId", ""), " ".join(icon.get("tags", [])),
+                      " ".join(icon.get("publicTags", []))]
             best = 0.0
             for field in fields:
                 if not field:
@@ -2061,6 +2103,7 @@ class YotoAPI:
                 ratio = fuzz.ratio(query, field_str) / 100.0
                 best = max(best, ratio)
             return best
+
         # Score all icons
         scored_icons = [(score_icon(icon), icon) for icon in icons]
         # Sort by score descending
@@ -2091,7 +2134,8 @@ class YotoAPI:
                 rprint("[bold red]No matching icon found.[/bold red]")
         return best_icons
 
-    def upload_custom_icon(self, icon_path: str, filename: Optional[str] = None, auto_convert: bool = True, yotoicons_id: str | None=None) -> dict:
+    def upload_custom_icon(self, icon_path: str, filename: Optional[str] = None, auto_convert: bool = True,
+                           yotoicons_id: str | None = None) -> dict:
         """
         Upload a custom icon to the official Yoto API and return the displayIcon metadata.
         Caches the result using SHA256 of the icon file.
@@ -2139,20 +2183,21 @@ class YotoAPI:
         self._save_icon_upload_cache(cache)
 
         if result.get("url"):
-            self.save_icon_image_to_yoto_icon_cache(icon_path, icon_bytes, hashlib.sha256(result.get("url").encode()).hexdigest())
+            self.save_icon_image_to_yoto_icon_cache(icon_path, icon_bytes,
+                                                    hashlib.sha256(result.get("url").encode()).hexdigest())
 
         # Save the icon file into yoto_icon_cache for local reference
         logger.info(f"Icon uploaded and cached with mediaId: {result.get('mediaId')}")
         return result
 
     def upload_cover_image(
-        self,
-        image_path: Optional[str] = None,
-        imageUrl: Optional[str] = None,
-        autoconvert: bool = True,
-        coverType: Optional[str] = None,
-        filename: Optional[str] = None,
-        progress_callback: Optional[Callable[[str, float], None]] = None,
+            self,
+            image_path: Optional[str] = None,
+            imageUrl: Optional[str] = None,
+            autoconvert: bool = True,
+            coverType: Optional[str] = None,
+            filename: Optional[str] = None,
+            progress_callback: Optional[Callable[[str, float], None]] = None,
     ) -> dict:
         """
         Upload a cover image for the current user.
@@ -2248,7 +2293,7 @@ class YotoAPI:
         cache_file_path = icons_cache_dir / f"{sha256}{ext}"
         if not cache_file_path.exists():
             cache_file_path.write_bytes(icon_bytes)
-    
+
     def get_icon_b64_data(self, icon_field: str) -> str | None:
         """
         Given an icon field (e.g. "yoto:#<mediaId>"), return a base64 data URI string for the icon image.
@@ -2352,7 +2397,7 @@ class YotoAPI:
                     except Exception as ex:
                         logger.error(f"Error getting icon cache path for {icon_field}: {ex}")
                         return p if p.exists() else None
-            
+
             logger.debug(f"No matching icon found for mediaId: {media_id}")
         except Exception as ex:
             logger.error(f"Error getting icon cache path: {ex}")
@@ -2383,7 +2428,9 @@ class YotoAPI:
         filename = "".join(icon.get("tags", [])) or icon.get("id") or cache_path.stem
         return self.upload_custom_icon(str(cache_path), auto_convert=auto_convert, yotoicons_id=icon.get("id"))
 
-    def replace_card_default_icons(self, card: Card, progress_callback: Optional[Callable[[str, float], None]] = None, cancel_event: Optional[threading.Event] = None, include_yotoicons: bool = True, max_searches: int = 3) -> Card:
+    def replace_card_default_icons(self, card: Card, progress_callback: Optional[Callable[[str, float], None]] = None,
+                                   cancel_event: Optional[threading.Event] = None, include_yotoicons: bool = True,
+                                   max_searches: int = 3) -> Card:
         """
         Replace default placeholder icons on a Card's chapters and tracks.
         Optionally accepts a progress_callback(msg, frac) for UI updates.
@@ -2434,7 +2481,8 @@ class YotoAPI:
                     chapter = card.content.chapters[ch_idx]
                     query = getattr(chapter, 'title', '')
                     _cb(f"Finding icon for chapter '{query}'", completed / total)
-                    best_icons = self.find_best_icons_for_text(query, include_yotoicons=include_yotoicons, max_searches=max_searches)
+                    best_icons = self.find_best_icons_for_text(query, include_yotoicons=include_yotoicons,
+                                                               max_searches=max_searches)
                     if best_icons:
                         best_icon = best_icons[0]
                         media_id = best_icon.get('mediaId')
@@ -2453,7 +2501,8 @@ class YotoAPI:
                     track = chapter.tracks[tr_idx]
                     query = getattr(track, 'title', getattr(chapter, 'title', ''))
                     _cb(f"Finding icon for track '{query}'", completed / total)
-                    best_icons = self.find_best_icons_for_text(query, include_yotoicons=include_yotoicons, max_searches=max_searches)
+                    best_icons = self.find_best_icons_for_text(query, include_yotoicons=include_yotoicons,
+                                                               max_searches=max_searches)
                     if best_icons:
                         best_icon = best_icons[0]
                         media_id = best_icon.get('mediaId')
@@ -2591,7 +2640,8 @@ class YotoAPI:
         # For now, we just clear tokens
         logger.info("Authentication state has been reset.")
 
-    def rewrite_track_fields(self, card: Card, field: str, value: str = "", sequential: bool=True, reset_every_chapter: bool = False) -> Card:
+    def rewrite_track_fields(self, card: Card, field: str, value: str = "", sequential: bool = True,
+                             reset_every_chapter: bool = False) -> Card:
 
         """
         Rewrites the specified field for all tracks in a card to a new label.
@@ -2646,7 +2696,7 @@ class YotoAPI:
 
         return card
 
-    def rewrite_chapter_fields(self, card: Card, field: str, value: str = "", sequential: bool=True) -> Card:
+    def rewrite_chapter_fields(self, card: Card, field: str, value: str = "", sequential: bool = True) -> Card:
         """
         Rewrites the specified field for all chapters in a card to a new label.
         Args:
@@ -2688,8 +2738,8 @@ class YotoAPI:
 
         return card
 
-
-    def merge_chapters(self, card: Card, chapter_title: str = "Chapter 1", reset_overlay_labels: bool = True, reset_track_keys: bool = True) -> Card:
+    def merge_chapters(self, card: Card, chapter_title: str = "Chapter 1", reset_overlay_labels: bool = True,
+                       reset_track_keys: bool = True) -> Card:
         """
         Merges all chapters in a card into a single chapter.
         The new chapter's title is taken from the first chapter, and its duration is the sum of all chapters' durations.
@@ -2716,7 +2766,7 @@ class YotoAPI:
             if chapter.duration:
                 total_duration += chapter.duration
             if hasattr(chapter, "tracks") and chapter.tracks:
-                    all_tracks.extend(chapter.tracks)
+                all_tracks.extend(chapter.tracks)
 
         new_chapter = Chapter(
             key="1",
@@ -2733,10 +2783,12 @@ class YotoAPI:
             card = self.rewrite_track_fields(card, field="overlayLabel", sequential=True)
         if reset_track_keys:
             card = self.rewrite_track_fields(card, field="key", sequential=True)
-        logger.debug(f"Merged {len(card.content.chapters)} chapters into one with title '{chapter_title}' and duration {total_duration} seconds.")
+        logger.debug(
+            f"Merged {len(card.content.chapters)} chapters into one with title '{chapter_title}' and duration {total_duration} seconds.")
         return card
 
-    def split_chapters(self, card: Card, max_tracks_per_chapter: int = 5, reset_overlay_labels: bool = True, reset_track_keys: bool = True, include_part_in_title: bool = True) -> Card:
+    def split_chapters(self, card: Card, max_tracks_per_chapter: int = 5, reset_overlay_labels: bool = True,
+                       reset_track_keys: bool = True, include_part_in_title: bool = True) -> Card:
         """
         Splits chapters in a card into smaller chapters, each containing a maximum number of tracks.
         """
@@ -2776,7 +2828,8 @@ class YotoAPI:
         logger.debug(f"Split {len(card.content.chapters)} chapters into smaller chapters.")
         return card
 
-    def expand_all_tracks_into_chapters(self, card: Card, reset_overlay_labels: bool = True, reset_track_keys: bool = True) -> Card:
+    def expand_all_tracks_into_chapters(self, card: Card, reset_overlay_labels: bool = True,
+                                        reset_track_keys: bool = True) -> Card:
         """
         Expands all tracks in a card so that each track becomes its own chapter.
         """
