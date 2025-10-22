@@ -1090,7 +1090,7 @@ class YotoAPI:
 
     def upload_audio_file(self, audio_upload_url: str, audio_bytes: bytes, mime_type: str = "audio/mpeg"):
         headers = {"Content-Type": mime_type}
-        put_resp = httpx.put(audio_upload_url, data=audio_bytes, headers=headers)
+        put_resp = httpx.put(audio_upload_url, data=audio_bytes, headers=headers, timeout=20)
         if not put_resp.is_success:
             logger.error(f"Audio upload failed: {put_resp.text}")
             raise Exception(f"Audio upload failed: {put_resp.text}")
@@ -1302,6 +1302,7 @@ class YotoAPI:
         max_attempts: int = 30,
         track_details: Optional[dict] = None,
         chapter_details: Optional[dict] = None,
+        icon_uri : Optional[str] = None
     ):
         """
         Upload an audio file and add it as a track to an existing card.
@@ -1348,7 +1349,7 @@ class YotoAPI:
             format=media_info.get("format"),
             type="audio",
             overlayLabel=str(next_chapter_number),
-            display=TrackDisplay(icon16x16="yoto:#aUm9i3ex3qqAMYBv-i-O-pYMKuMJGICtR3Vhf289u2Q"),
+            display=TrackDisplay(icon16x16=icon_uri or "yoto:#aUm9i3ex3qqAMYBv-i-O-pYMKuMJGICtR3Vhf289u2Q"),
         )
         if track_details:
             track_kwargs.update(track_details)
@@ -1359,7 +1360,7 @@ class YotoAPI:
             title=new_track.title,
             overlayLabel=str(next_chapter_number),
             tracks=[new_track],
-            display=ChapterDisplay(icon16x16="yoto:#aUm9i3ex3qqAMYBv-i-O-pYMKuMJGICtR3Vhf289u2Q"),
+            display=ChapterDisplay(icon16x16=icon_uri or "yoto:#aUm9i3ex3qqAMYBv-i-O-pYMKuMJGICtR3Vhf289u2Q"),
             duration=media_info.get("duration"),
             fileSize=media_info.get("fileSize"),
         )
