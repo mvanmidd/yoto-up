@@ -3,6 +3,7 @@
 Extract album art from MP3 files and save as PNG.
 """
 import argparse
+import re
 from pathlib import Path
 
 from mutagen.mp3 import MP3
@@ -14,7 +15,8 @@ import sys
 from yoto_up.yoto import get_api
 from yoto_up.yoto_api import YotoAPI
 
-CARD_ID = "c7wQU"
+# CARD_ID = "c7wQU" # Teddy Jams
+CARD_ID = "3db3h" # Teddy Jams 2.0
 
 
 def extract_album_art(mp3_path, output_path="album_art.png"):
@@ -75,6 +77,8 @@ def main():
     )
     parser.add_argument('--folder', help='Folder containing MP3 files', required=False,
                         default="/Users/mvanmidd/src/yoto-up/fake_album")
+    parser.add_argument('--img-folder', help='Folder containing MP3 files', required=False,
+                        default=None)
     parser.add_argument(
         '-x', '--execute',
         action='store_true',
@@ -105,14 +109,26 @@ def main():
     mp3_files.sort()
 
     for file_path in mp3_files:
-        # Extract album art from ID3 metadata and write as png
-        output_file = file_path.parent / (file_path.name + ".png")
-        print(f"Extracting album art from: {file_path}")
-        extract_album_art(file_path, output_file)
+        if not args.img_folder:
+            # Extract album art from ID3 metadata and write as png
+            track_image_file = file_path.parent / (file_path.name + ".png")
+            print(f"Extracting album art from: {file_path}")
+            extract_album_art(file_path, track_image_file)
+        else:
+            pattern = r"^\d+\s*-\s*(?:\d+\s*-\s*)?(.+?)\.mp3$"
+            match = re.search(pattern, file_path.name)
+            if match:
+                songname = match.group(1).strip()
+                # TODO temporary hack for my current folder of images
+                track_image_file = Path(args.img_folder) / (f"cleaned - {songname} 0.png")
+                if not Path(track_image_file).exists():
+                    raise ValueError(f"{track_image_file} not found")
+                print(f"Adding song: {songname}")
+            else:
+                raise ValueError(f"Did not find matching image file for {file_path.name}")
 
         # Upload album art
-        response = api.upload_custom_icon(output_file)
-        print(response)
+        response = api.upload_custom_icon(track_image_file)
         icon_id = response['mediaId']
         # icon_id = 'J2Q6Jc2iIM63aPcjdU-dp5lMzcsyXESERYz3R31guVg'
         icon_uri = f"yoto:#{icon_id}"
